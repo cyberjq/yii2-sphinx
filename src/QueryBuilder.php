@@ -100,7 +100,6 @@ class QueryBuilder extends BaseObject
      * @param Query $query the [[Query]] object from which the SQL statement will be generated
      * @param array $params the parameters to be bound to the generated SQL statement. These parameters will
      * be included in the result with the additional parameters generated during the query building process.
-     * @throws NotSupportedException if query contains 'join' option.
      * @return array the generated SQL statement (the first array element) and the corresponding
      * parameters to be bound to the SQL statement (the second array element). The parameters returned
      * include those provided in `$params`.
@@ -108,10 +107,6 @@ class QueryBuilder extends BaseObject
     public function build($query, $params = [])
     {
         $query = $query->prepare($this);
-
-        if (!empty($query->join)) {
-            throw new NotSupportedException('Build of "' . get_class($query) . '::join" is not supported.');
-        }
 
         $params = empty($params) ? $query->params : array_merge($params, $query->params);
 
