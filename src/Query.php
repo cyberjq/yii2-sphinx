@@ -297,7 +297,8 @@ class Query extends \yii\db\Query
      */
     public function join($type, $table, $on = '', $params = [])
     {
-        throw new NotSupportedException('"' . __METHOD__ . '" is not supported.');
+        $this->join[] = [$type, $table, $on];
+        return $this->addParams($params);
     }
 
     /**
@@ -305,7 +306,8 @@ class Query extends \yii\db\Query
      */
     public function innerJoin($table, $on = '', $params = [])
     {
-        throw new NotSupportedException('"' . __METHOD__ . '" is not supported.');
+        $this->join[] = ['INNER JOIN', $table, $on];
+        return $this->addParams($params);
     }
 
     /**
@@ -313,7 +315,8 @@ class Query extends \yii\db\Query
      */
     public function leftJoin($table, $on = '', $params = [])
     {
-        throw new NotSupportedException('"' . __METHOD__ . '" is not supported.');
+        $this->join[] = ['LEFT JOIN', $table, $on];
+        return $this->addParams($params);
     }
 
     /**

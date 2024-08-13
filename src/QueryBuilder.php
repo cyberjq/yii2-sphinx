@@ -125,6 +125,7 @@ class QueryBuilder extends BaseObject
         $clauses = [
             $this->buildSelect($query->select, $params, $query->distinct, $query->selectOption),
             $this->buildFrom($from, $params),
+            $this->buildJoin($query->join, $params),
             $this->buildWhere($from, $query->where, $params, $query->match),
             $this->buildGroupBy($query->groupBy, $query->groupLimit),
             $this->buildWithin($query->within),
@@ -217,7 +218,7 @@ class QueryBuilder extends BaseObject
                 // Sphinx does not allows inserting `null`, column should be skipped instead
                 continue;
             }
-            $names[] = $this->db->quoteColumnName($name);
+            $names[] = $name;
             $placeholders[] = $this->composeColumnValue($indexSchemas, $name, $value, $params);
         }
 
@@ -311,7 +312,7 @@ class QueryBuilder extends BaseObject
         }
 
         foreach ($notNullColumns as $i => $name) {
-            $notNullColumns[$i] = $this->db->quoteColumnName($name);
+            $notNullColumns[$i] = $name;
         }
 
         return $statement . ' INTO ' . $this->db->quoteIndexName($index)
@@ -348,7 +349,7 @@ class QueryBuilder extends BaseObject
 
         $lines = [];
         foreach ($columns as $name => $value) {
-            $lines[] = $this->db->quoteColumnName($name) . '=' . $this->composeColumnValue($indexSchemas, $name, $value, $params);
+            $lines[] = $name . '=' . $this->composeColumnValue($indexSchemas, $name, $value, $params);
         }
 
         $sql = 'UPDATE ' . $this->db->quoteIndexName($index) . ' SET ' . implode(', ', $lines);
@@ -500,19 +501,16 @@ class QueryBuilder extends BaseObject
                 if (is_int($i)) {
                     $columns[$i] = $column->expression;
                 } else {
-                    $columns[$i] = $column->expression . ' AS ' . $this->db->quoteColumnName($i);
+                    $columns[$i] = $column->expression . ' AS ' . $i;
                 }
                 $params = array_merge($params, $column->params);
             } elseif (is_string($i) && $i !== $column) {
-                if (strpos($column, '(') === false) {
-                    $column = $this->db->quoteColumnName($column);
-                }
-                $columns[$i] = "$column AS " . $this->db->quoteColumnName($i);
+                $columns[$i] = "$column AS " . $i;
             } elseif (strpos($column, '(') === false) {
                 if (preg_match('/^(.*?)(?i:\s+as\s+|\s+)([\w\-_\.]+)$/', $column, $matches)) {
-                    $columns[$i] = $this->db->quoteColumnName($matches[1]) . ' AS ' . $this->db->quoteColumnName($matches[2]);
+                    $columns[$i] = $matches[1] . ' AS ' . $matches[2];
                 } else {
-                    $columns[$i] = $this->db->quoteColumnName($column);
+                    $columns[$i] = $column;
                 }
             }
         }
@@ -553,6 +551,37 @@ class QueryBuilder extends BaseObject
         }
 
         return 'FROM ' . $indexes;
+    }
+
+    /**
+     * @param array $joins
+     * @param array $params the binding parameters to be populated
+     * @return string the JOIN clause built from [[query]].
+     */
+    public function buildJoin($joins, &$params)
+    {
+        if (empty($joins)) {
+            return '';
+        }
+
+        foreach ($joins as $i => $join) {
+            if (!is_array($join) || !isset($join[0], $join[1])) {
+                throw new Exception('A join clause must be specified as an array of join type, join table, and optionally join condition.');
+            }
+            // 0:join type, 1:join table, 2:on-condition (optional)
+            list($joinType, $index) = $join;
+            $index = $this->db->quoteIndexName($join[1]);
+            $joins[$i] = "$joinType $index";
+            if (isset($join[2])) {
+                $indexSchemas = $this->getIndexSchemas([$index]);
+                $condition = $this->buildCondition($indexSchemas, $join[2], $params);
+                if ($condition !== '') {
+                    $joins[$i] .= ' ON ' . $condition;
+                }
+            }
+        }
+
+        return implode($this->separator, $joins);
     }
 
     /**
@@ -678,7 +707,7 @@ class QueryBuilder extends BaseObject
             if ($direction instanceof Expression) {
                 $orders[] = $direction->expression;
             } else {
-                $orders[] = $this->db->quoteColumnName($name) . ($direction === SORT_DESC ? ' DESC' : ' ASC');
+                $orders[] = $name . ($direction === SORT_DESC ? ' DESC' : ' ASC');
             }
         }
 
@@ -724,7 +753,7 @@ class QueryBuilder extends BaseObject
             if ($column instanceof Expression) {
                 $columns[$i] = $column->expression;
             } elseif (strpos($column, '(') === false) {
-                $columns[$i] = $this->db->quoteColumnName($column);
+                $columns[$i] = $column;
             }
         }
 
@@ -784,11 +813,7 @@ class QueryBuilder extends BaseObject
                 // IN condition
                 $parts[] = $this->buildInCondition($indexes, 'IN', [$column, $value], $params);
             } else {
-                if (strpos($column, '(') === false) {
-                    $quotedColumn = $this->db->quoteColumnName($column);
-                } else {
-                    $quotedColumn = $column;
-                }
+                $quotedColumn = $column;
                 if ($value === null) {
                     $parts[] = "$quotedColumn IS NULL";
                 } else {
@@ -870,11 +895,7 @@ class QueryBuilder extends BaseObject
 
         list($column, $value1, $value2) = $operands;
 
-        if (strpos($column, '(') === false) {
-            $quotedColumn = $this->db->quoteColumnName($column);
-        } else {
-            $quotedColumn = $column;
-        }
+        $quotedColumn = $column;
         $phName1 = $this->composeColumnValue($indexes, $column, $value1, $params);
         $phName2 = $this->composeColumnValue($indexes, $column, $value2, $params);
 
@@ -913,14 +934,11 @@ class QueryBuilder extends BaseObject
             if (is_array($column)) {
                 foreach ($column as $i => $col) {
                     if (strpos($col, '(') === false) {
-                        $column[$i] = $this->db->quoteColumnName($col);
+                        $column[$i] = $col;
                     }
                 }
                 return '(' . implode(', ', $column) . ") $operator ($sql)";
             } else {
-                if (strpos($column, '(') === false) {
-                    $column = $this->db->quoteColumnName($column);
-                }
                 return "$column $operator ($sql)";
             }
         }
@@ -944,16 +962,11 @@ class QueryBuilder extends BaseObject
             $sqlValues[$i] = $this->composeColumnValue($indexes, $column, $value, $params);
         }
 
-        if (strpos($column, '(') === false) {
-            $column = $this->db->quoteColumnName($column);
-        }
-
         if ($sqlValues === []) {
             if ($operator === 'IN') {
                 if (empty($column)) {
                     throw new Exception("Operator '$operator' requires column being specified.");
                 }
-                $column = $this->db->quoteColumnName($column);
                 return "({$column} = 0 AND {$column} = 1)";
             }
             return '';
@@ -993,7 +1006,7 @@ class QueryBuilder extends BaseObject
         $sqlColumns = [];
         foreach ($columns as $i => $column) {
             if (strpos($column, '(') === false) {
-                $sqlColumns[$i] = $this->db->quoteColumnName($column);
+                $sqlColumns[$i] = $column;
             }
         }
 
@@ -1047,10 +1060,6 @@ class QueryBuilder extends BaseObject
             $operator = $operator === 'OR LIKE' ? 'LIKE' : 'NOT LIKE';
         }
 
-        if (strpos($column, '(') === false) {
-            $column = $this->db->quoteColumnName($column);
-        }
-
         $parts = [];
         foreach ($values as $value) {
             if ($value instanceof Expression) {
@@ -1087,10 +1096,6 @@ class QueryBuilder extends BaseObject
 
         $value = $this->composeColumnValue($indexes, $column, $value, $params);
 
-        if (strpos($column, '(') === false) {
-            $column = $this->db->quoteColumnName($column);
-        }
-
         return "$column $operator $value";
     }
 
@@ -1108,7 +1113,7 @@ class QueryBuilder extends BaseObject
             if ($direction instanceof Expression) {
                 $orders[] = $direction->expression;
             } else {
-                $orders[] = $this->db->quoteColumnName($name) . ($direction === SORT_DESC ? ' DESC' : ' ASC');
+                $orders[] = $name . ($direction === SORT_DESC ? ' DESC' : ' ASC');
             }
         }
 
@@ -1299,7 +1304,7 @@ class QueryBuilder extends BaseObject
         }
         return $indexSchemas;
     }
-    
+
     /**
      * Builds a SQL statement for creating a new index table.
      *
@@ -1328,7 +1333,7 @@ class QueryBuilder extends BaseObject
         $cols = [];
         foreach ($columns as $name => $type) {
             if (is_string($name)) {
-                $cols[] = "\t" . $this->db->quoteColumnName($name) . ' ' . $type;
+                $cols[] = "\t" . $name . ' ' . $type;
             } else {
                 $cols[] = "\t" . $type;
             }
@@ -1337,7 +1342,7 @@ class QueryBuilder extends BaseObject
 
         return $options === null ? $sql : $sql . ' ' . $options;
     }
-    
+
     /**
      * Builds a SQL statement for dropping a index.
      * @param string $table the table to be dropped. The name will be properly quoted by the method.
@@ -1348,7 +1353,7 @@ class QueryBuilder extends BaseObject
     {
         return 'DROP TABLE ' . $this->db->quoteTableName($table);
     }
-    
+
     /**
      * Builds a SQL statement for adding a new index column.
      * @param string $table the index that the new column will be added to. The index name will be properly quoted by the method.
@@ -1360,10 +1365,10 @@ class QueryBuilder extends BaseObject
     public function addColumn($table, $column, $type)
     {
         return 'ALTER TABLE ' . $this->db->quoteTableName($table)
-            . ' ADD COLUMN ' . $this->db->quoteColumnName($column) . ' '
+            . ' ADD COLUMN ' . $column . ' '
             . $type;
     }
-    
+
     /**
      * Builds a SQL statement for dropping a index column.
      * @param string $table the index whose column is to be dropped. The name will be properly quoted by the method.
@@ -1374,7 +1379,7 @@ class QueryBuilder extends BaseObject
     public function dropColumn($table, $column)
     {
         return 'ALTER TABLE ' . $this->db->quoteTableName($table)
-            . ' DROP COLUMN ' . $this->db->quoteColumnName($column);
+            . ' DROP COLUMN ' . $column;
     }
-        
+
 }
