@@ -1,5 +1,5 @@
 {
-    "name": "yiisoft/yii2-sphinx",
+    "name": "cyberjq/yii2-sphinx",
     "description": "Sphinx full text search engine extension for the Yii framework",
     "keywords": ["yii2", "sphinx", "active-record", "search", "fulltext"],
     "type": "yii2-extension",
@@ -15,6 +15,10 @@
         {
             "name": "Paul Klimov",
             "email": "klimov.paul@gmail.com"
+        },
+        {
+            "name": "Maxim Sychugov",
+            "email": "makssims2014@gmail.com"
         }
     ],
     "require": {
