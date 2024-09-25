@@ -76,6 +76,7 @@ class Schema extends BaseObject
         'float' => self::TYPE_FLOAT,
         'mva' => self::TYPE_INTEGER,
         'uint_set' => self::TYPE_INTEGER,
+        'float_vector' => self::TYPE_FLOAT,
     ];
 
     /**
